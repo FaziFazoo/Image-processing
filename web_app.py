@@ -15,47 +15,44 @@ def detect_shockwaves(image_path, contrast=1.0, sharpness=0.0):
     img = cv2.imread(image_path)
     if img is None:
         raise ValueError("Failed to read image file")
-    
+
     # Convert to grayscale and adjust contrast
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray = cv2.convertScaleAbs(gray, alpha=contrast, beta=0)
-    
-    # Apply Gaussian blur to reduce noise while preserving edges
+
+    # Apply Gaussian blur for noise reduction
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
     # Apply sharpness using unsharp mask
     if sharpness > 0:
-        blurred = cv2.GaussianBlur(gray, (0, 0), 3.0)
-        gray = cv2.addWeighted(gray, 1.0 + sharpness, blurred, -sharpness, 0)
+        blurred_sharp = cv2.GaussianBlur(gray, (0, 0), 3.0)
+        gray = cv2.addWeighted(gray, 1.0 + sharpness, blurred_sharp, -sharpness, 0)
 
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Use Canny edge detection to highlight sharp intensity changes
-    canny_edges = cv2.Canny(blurred, 100, 200)
-    
+    # Apply CLAHE for contrast enhancement
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    clahe_img = clahe.apply(gray)
+
     # Apply Laplacian filter to detect edges
-    laplacian = cv2.Laplacian(blurred, cv2.CV_64F)
-    laplacian = cv2.convertScaleAbs(laplacian)
-    
-    # Combine Canny and Laplacian edges
-    combined_edges = cv2.bitwise_or(canny_edges, laplacian)
-    
-    # Alternatively, to enhance edges in specific directions using Sobel filters, uncomment the following:
-    # sobel_x = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=5)
-    # sobel_y = cv2.Sobel(blurred, cv2.CV_64F, 0, 1, ksize=5)
-    # abs_sobel_x = cv2.convertScaleAbs(sobel_x)
-    # abs_sobel_y = cv2.convertScaleAbs(sobel_y)
-    # combined_edges = cv2.addWeighted(abs_sobel_x, 0.5, abs_sobel_y, 0.5, 0)
-    # combined_edges = cv2.Canny(combined_edges, 100, 200)
-    
-    # Find contours to identify and outline shock wave boundaries
-    contours, _ = cv2.findContours(combined_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
+    laplacian = cv2.Laplacian(clahe_img, cv2.CV_64F)
+    laplacian_abs = cv2.convertScaleAbs(laplacian)
+
+    # Apply adaptive thresholding
+    thresh = cv2.adaptiveThreshold(laplacian_abs, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+
+    # Morphological operations: Dilation to enhance shockwaves
+    kernel = np.ones((3,3),np.uint8)
+    dilated_edges = cv2.dilate(thresh, kernel, iterations = 1)
+
+    # Find contours to identify shock wave boundaries
+    contours, _ = cv2.findContours(dilated_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
     # Draw detected contours on a copy of the original image
     result = img.copy()
     cv2.drawContours(result, contours, -1, (0, 255, 0), 2)
-    
-    # Convert to monochromatic image with enhanced contrast for clear visualization
+
+    # Convert to monochromatic image for visualization
     mono = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
-    mono = cv2.equalizeHist(mono)
+    mono = cv2.equalizeHist(mono) #equalize histogram for better visualization
     return mono
 
 @app.route('/', methods=['GET', 'POST'])
